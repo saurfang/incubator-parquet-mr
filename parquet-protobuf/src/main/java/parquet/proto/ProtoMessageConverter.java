@@ -134,6 +134,11 @@ class ProtoMessageConverter extends GroupConverter {
 
 
   private Converter newScalarConverter(ParentValueContainer pvc, Message.Builder parentBuilder, Descriptors.FieldDescriptor fieldDescriptor, Type parquetType) {
+    if (fieldDescriptor.isRepeated()
+            && !parquetType.isRepetition(Type.Repetition.REPEATED)
+            && parquetType.getName().equals(fieldDescriptor.getName())) {
+      return new ProtoListConverter(pvc, parentBuilder, fieldDescriptor, parquetType.asGroupType());
+    }
 
     JavaType javaType = fieldDescriptor.getJavaType();
 
@@ -344,5 +349,36 @@ class ProtoMessageConverter extends GroupConverter {
       parent.add(str);
     }
 
+  }
+
+  final class ProtoListConverter extends GroupConverter {
+    private final Converter converter;
+
+    ProtoListConverter(ParentValueContainer pvc, Message.Builder builder, Descriptors.FieldDescriptor fieldDescriptor, GroupType parquetSchema) {
+      if (pvc == null) {
+        throw new IllegalStateException("Missing parent value container");
+      }
+
+      Type childSchema = parquetSchema.getFields().get(0);
+      if(parquetSchema.isRepetition(Type.Repetition.REPEATED)) {
+        converter = newScalarConverter(pvc, builder, fieldDescriptor, childSchema);
+      } else {
+        converter = new ProtoListConverter(pvc, builder, fieldDescriptor, childSchema.asGroupType());
+      }
+    }
+
+    @Override
+    public Converter getConverter(int fieldIndex) {
+      if (fieldIndex != 0) {
+        throw new IllegalArgumentException("lists have only one field. can't reach " + fieldIndex);
+      }
+      return converter;
+    }
+
+    @Override
+    public void start() { }
+
+    @Override
+    public void end() { }
   }
 }
